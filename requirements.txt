@@ -11,3 +11,4 @@ joblib
 accelerate>=0.20.0
 sentencepiece
 tiktoken
+protobuf

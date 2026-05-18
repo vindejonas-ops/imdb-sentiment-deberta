@@ -43,8 +43,10 @@ jobs:
           print(f'Saved {len(df)} samples')
           "
       
-      - name: Extract features
-        run: python src/extract_features.py
+      - name: Clean HF cache and extract features
+        run: |
+          rm -rf ~/.cache/huggingface/hub/models--microsoft--deberta-v3-small
+          python src/extract_features.py
       
       - name: Train MLP
         run: python src/train_mlp.py
