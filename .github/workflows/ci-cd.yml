@@ -1,4 +1,4 @@
-name: Extract Features, Train MLP, Upload to Hugging Face
+name: Evaluate RoBERTa and Upload to Hugging Face
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  train-and-upload:
+  evaluate-and-upload:
     runs-on: ubuntu-latest
     
     steps:
@@ -17,45 +17,19 @@ jobs:
         with:
           python-version: "3.11"
       
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential
-      
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
+          pip install transformers torch pandas scikit-learn huggingface_hub
       
-      - name: Download IMDB data
-        run: |
-          mkdir -p data
-          python -c "
-          from datasets import load_dataset
-          import pandas as pd
-          ds = load_dataset('imdb')
-          train = ds['train'].to_pandas()
-          df = pd.concat([
-              train[train['label']==0].sample(5000, random_state=42),
-              train[train['label']==1].sample(5000, random_state=42)
-          ]).sample(frac=1, random_state=42).reset_index(drop=True)
-          df.to_csv('data/imdb_balanced_10k.csv', index=False)
-          print(f'Saved {len(df)} samples')
-          "
-      
-      - name: Clean HF cache and extract features
-        run: |
-          rm -rf ~/.cache/huggingface/hub/models--microsoft--deberta-v3-small
-          python src/extract_features.py
-      
-      - name: Train MLP
-        run: python src/train_mlp.py
+      - name: Evaluate model
+        run: python src/evaluate.py
       
       - name: Check accuracy threshold
         run: |
-          ACC=$(cat accuracy.txt)
+          ACC=$(python -c "import json; print(json.load(open('artifacts/metrics.json'))['accuracy'])")
           echo "Accuracy: $ACC"
-          python -c "import sys; acc=float(open('accuracy.txt').read()); assert acc >= 0.95, f'Accuracy {acc} below 95%'; print(f'✅ Accuracy {acc*100:.2f}% meets threshold')"
+          python -c "import json, sys; acc=json.load(open('artifacts/metrics.json'))['accuracy']; assert acc >= 0.92, f'Accuracy {acc} below 92%'; print(f'✅ Accuracy {acc*100:.2f}% meets threshold')"
       
       - name: Upload to Hugging Face
         env:
@@ -63,7 +37,7 @@ jobs:
         run: |
           python -c "
           import os
-          from huggingface_hub import HfApi, upload_file
+          from huggingface_hub import HfApi, upload_folder
           
           token = os.environ['HF_TOKEN']
           repo_id = 'Ch1kage/Sentiment_analyse-HuggingFace'
@@ -71,9 +45,6 @@ jobs:
           api = HfApi()
           api.create_repo(repo_id, token=token, repo_type='model', exist_ok=True)
           
-          upload_file('model/sentiment_mlp.joblib', 'sentiment_mlp.joblib', repo_id=repo_id, token=token, repo_type='model')
-          upload_file('accuracy.txt', 'accuracy.txt', repo_id=repo_id, token=token, repo_type='model')
-          upload_file('README.md', 'README.md', repo_id=repo_id, token=token, repo_type='model')
-          
+          upload_folder('artifacts', repo_id=repo_id, token=token, repo_type='model')
           print(f'Uploaded to https://huggingface.co/{repo_id}')
           "

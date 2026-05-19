@@ -1,60 +1,49 @@
-import os
-import sys
-import numpy as np
-import joblib
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
 import torch
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-MODEL_NAME = "microsoft/deberta-v3-small"
-MAX_LENGTH = 512
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MLP_PATH = os.path.join(BASE_DIR, "model", "sentiment_mlp.joblib")
+ROOT = Path(__file__).resolve().parent.parent
+ARTIFACTS_DIR = ROOT / "artifacts"
+DEFAULT_MODEL = "textattack/roberta-base-imdb"
 
 
-def extract_single(text, tokenizer, model):
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Predict IMDB review sentiment.")
+    parser.add_argument("text", help="Review text to classify.")
+    parser.add_argument(
+        "--model",
+        default=str(ARTIFACTS_DIR) if ARTIFACTS_DIR.exists() else DEFAULT_MODEL,
+        help="Local artifact directory or Hugging Face model ID.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    model = AutoModelForSequenceClassification.from_pretrained(args.model)
     model.eval()
+
+    encoded = tokenizer(
+        [args.text],
+        padding=True,
+        truncation=True,
+        max_length=512,
+        return_tensors="pt",
+    )
     with torch.no_grad():
-        inputs = tokenizer(
-            text,
-            padding=True,
-            truncation=True,
-            max_length=MAX_LENGTH,
-            return_tensors="pt"
-        ).to(DEVICE)
-        
-        outputs = model(**inputs)
-        hidden = outputs.last_hidden_state
-        mean_pooled = hidden.mean(dim=1)
-        max_pooled = hidden.max(dim=1)[0]
-        return torch.cat([mean_pooled, max_pooled], dim=-1).cpu().numpy()
+        probabilities = torch.softmax(model(**encoded).logits, dim=-1)[0]
+    label = int(probabilities.argmax().item())
+    sentiment = "positive" if label == 1 else "negative"
 
-
-def predict(text):
-    if not os.path.exists(MLP_PATH):
-        print(f"Error: Model not found at {MLP_PATH}")
-        sys.exit(1)
-    
-    mlp = joblib.load(MLP_PATH)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModel.from_pretrained(MODEL_NAME).to(DEVICE)
-    
-    features = extract_single(text, tokenizer, model)
-    prob = mlp.predict_proba(features)[0]
-    pred = mlp.predict(features)[0]
-    
-    sentiment = "Positive" if pred == 1 else "Negative"
-    confidence = prob[pred]
-    
-    print(f"\nText: {text}")
-    print(f"Sentiment: {sentiment} (confidence: {confidence:.4f})")
-    return sentiment, confidence
+    print(f"sentiment={sentiment}")
+    print(f"negative_probability={float(probabilities[0]):.4f}")
+    print(f"positive_probability={float(probabilities[1]):.4f}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python predict.py \"Your text here\"")
-        sys.exit(1)
-    
-    predict(sys.argv[1])
+    main()
