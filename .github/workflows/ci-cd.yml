@@ -31,7 +31,7 @@ jobs:
           echo "Accuracy: $ACC"
           python -c "import json, sys; acc=json.load(open('artifacts/metrics.json'))['accuracy']; assert acc >= 0.92, f'Accuracy {acc} below 92%'; print(f'✅ Accuracy {acc*100:.2f}% meets threshold')"
       
-      - name: Upload to Hugging Face
+       - name: Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -45,6 +45,13 @@ jobs:
           api = HfApi()
           api.create_repo(repo_id, token=token, repo_type='model', exist_ok=True)
           
-          upload_folder('artifacts', repo_id=repo_id, token=token, repo_type='model')
+          # 修复：明确指定 folder_path 参数
+          upload_folder(
+              folder_path='artifacts',
+              repo_id=repo_id,
+              token=token,
+              repo_type='model'
+          )
+          
           print(f'Uploaded to https://huggingface.co/{repo_id}')
           "
